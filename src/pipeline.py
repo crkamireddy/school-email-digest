@@ -24,6 +24,18 @@ from .slack_client import post_message
 log = logging.getLogger("school_email_digest")
 
 
+def _log_name(email) -> str:
+    """How an email is named in the run log. On GitHub Actions the log of
+    a public repo is public too, so use the opaque Gmail message ID — a
+    subject line like a school newsletter's title would identify the
+    school. Locally the log stays on your own machine, so the subject is
+    fine and far easier to read. Find a logged ID in Gmail at
+    https://mail.google.com/mail/u/0/#all/<id>."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return f"message {email.message_id}"
+    return repr(email.subject)
+
+
 def run(config: Config | None = None, dry_run: bool = False, since_days: int | None = None) -> list[str]:
     """Runs one full pass. Returns the list of Slack messages that were
     (or, in dry_run, would have been) posted — handy for tests and for
@@ -102,16 +114,16 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
 
             if decision.slack_text is None:
                 log.info("Skipped (nothing survived): %s — %d candidate item(s)",
-                          email.subject, len(extraction.items))
+                          _log_name(email), len(extraction.items))
                 continue
 
             if not dry_run:
                 post_message(config.slack_channel, decision.slack_text)
             posted.append(decision.slack_text)
             if decision.is_reply_notice:
-                log.info("Posted FYI notice: reply to \"%s\" — nothing new", email.subject)
+                log.info("Posted FYI notice: reply to %s — nothing new", _log_name(email))
             else:
-                log.info("Posted: %s — %d item(s) included", email.subject, len(decision.logged_items))
+                log.info("Posted: %s — %d item(s) included", _log_name(email), len(decision.logged_items))
 
             if not dry_run:
                 for item in decision.logged_items:
@@ -130,8 +142,8 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
             # the batch or skip the sync below. Logged with the full
             # traceback so it's still fully diagnosable — just not fatal.
             failed_subjects.append(email.subject)
-            log.exception("Failed to process email %r — skipping it, continuing with the rest",
-                           email.subject)
+            log.exception("Failed to process email %s — skipping it, continuing with the rest",
+                           _log_name(email))
 
     if failed_subjects:
         log.warning("%d of %d email(s) failed this run and were skipped — "

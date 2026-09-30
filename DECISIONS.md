@@ -98,3 +98,28 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   drive.file), where data goes (Anthropic API, Slack), and what's stored
   (sent log only). Used as the OAuth consent screen's privacy policy
   link. Bucket: cheap.
+- **OAuth app published to production.** Branding links: home page =
+  public repo, privacy policy = PRIVACY.md on GitHub; `github.com`
+  added as an authorized domain (Google requires the links' domain
+  there); terms-of-service link left empty (optional). App stays
+  unverified — owner sees Google's "unverified app" warning at sign-in,
+  100-user lifetime cap. A pre-push hook in .git/hooks (local only)
+  blocks pushing the old history to the public repo. Bucket: expensive
+  (auth) — confirmed with user.
+- **On GitHub Actions, the run log names emails by Gmail message ID, not
+  subject; local runs still log subjects.** Why: a public repo's Actions
+  logs are public, and subjects can name a school. Detected via the
+  `GITHUB_ACTIONS` env var. Slack warnings still list real subjects
+  (Slack is private). Residual risk: a traceback from a failed email
+  could still echo email content in its exception message. User chose
+  this over "never log subjects anywhere". Bucket: expensive (public
+  data) — confirmed with user.
+- **Skipped the ~2-week backlog from the outage** by moving the Drive
+  sent log's `last_run` cursor from 2026-09-17T22:20 to
+  2026-09-30T20:29 (UTC — matches the cloud runner's clock). Sent
+  history (45 rows) untouched. Email that arrived during the outage
+  will never be posted. Bucket: expensive (real data) — confirmed with
+  user.
+- **Local config.yaml gained `storage.drive_folder_id`**, set to the
+  same folder the old code had hard-coded, so history carries over.
+  Bucket: cheap.
