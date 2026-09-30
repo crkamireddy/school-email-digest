@@ -1,0 +1,43 @@
+name: School Email Digest
+
+on:
+  schedule:
+    # Times are UTC — change these to suit your own time zone. As
+    # written, they're 7:30am, 12:30pm, and 4:30pm US Pacific daylight
+    # time (UTC-7). Format is 'minute hour * * *'; e.g. 8am US Eastern
+    # daylight time (UTC-4) is '0 12 * * *'. Cron here doesn't adjust for
+    # daylight saving time, so runs shift by an hour when clocks change
+    # unless you update these. See README.md "Cloud setup".
+    - cron: '30 14 * * *'
+    - cron: '30 19 * * *'
+    - cron: '30 23 * * *'
+  workflow_dispatch:  # lets you trigger a run manually from GitHub's Actions tab, for testing
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Reconstruct credentials from secrets
+        # Secrets are base64-encoded before being stored, and decoded
+        # here — avoids shell-escaping problems with quotes/special
+        # characters that real JSON and YAML content routinely contain.
+        run: |
+          echo "${{ secrets.GMAIL_TOKEN_JSON_B64 }}" | base64 --decode > token.json
+          echo "${{ secrets.SCHOOL_DIGEST_CONFIG_YAML_B64 }}" | base64 --decode > config.yaml
+
+      - name: Run the digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: python run.py

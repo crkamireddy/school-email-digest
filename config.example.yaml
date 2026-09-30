@@ -1,0 +1,87 @@
+# Copy this file to config.yaml and fill in your own details — or open
+# tools/config-builder.html in a browser to generate one from a form.
+# Nothing in this file is code — it's the only thing that should need
+# to change to point this tool at a different family's schools.
+
+schools:
+  - name: "Example Elementary"
+    type: "K-8"
+    # Each entry here can be EITHER just a class name (a plain string —
+    # use this when a grade note isn't needed), OR a mapping with an
+    # optional grade_note. Use the mapping form when the same school has
+    # more than one relevant class (e.g. two kids at the same school in
+    # different grades) and you want to note each one's grade.
+    relevant_classes:
+      - name: "Room 12"
+        grade_note: "2nd grade"
+      - name: "Room 5"
+        grade_note: "kindergarten"
+
+  - name: "Example Preschool"
+    type: "preschool"
+    # Plain strings are fine here — preschool "classes" are usually
+    # age-group names, not grades, so there's nothing to annotate.
+    relevant_classes:
+      - "Ladybugs"
+      - "Fireflies"
+
+rules:
+  # A fundraiser/event reminder only gets surfaced if its deadline is
+  # within this many days, or if it contains genuinely new information.
+  deadline_window_days: 7
+
+  # When true, a volunteer ask that names a specific class or grade is
+  # only included if that's one of the relevant_classes listed above
+  # (e.g. an 8th grade chaperone ask is dropped for a family with no 8th
+  # grader). General schoolwide asks that name no class are still
+  # included either way.
+  volunteer_asks_only_for_relevant_classes: true
+
+  # Emails about grades/classes not listed in relevant_classes are
+  # dropped entirely (e.g. a 4th grade trip, an 8th grade outing).
+  skip_unrelated_grades: true
+
+  # How many days back to check when deciding whether something already
+  # got surfaced (a topic sent 6 weeks ago is fair game to resurface).
+  dedup_lookback_days: 21
+
+notification:
+  # Slack channel to post the daily digest to, as its channel ID. Find it
+  # in Slack: click the channel name at the top of the channel, then look
+  # at the bottom of the About tab. A "#channel-name" also works, but then
+  # the Slack app needs the extra channels:read permission to look it up.
+  slack_channel: "C0123456789"
+
+models:
+  # Defaults to the fast/cheap tier. Bump to a larger model only if you
+  # see it being inconsistent on genuinely ambiguous cases once you've
+  # watched it run for a while — don't upgrade pre-emptively. This is
+  # the only model this project calls — extraction is the one LLM step;
+  # everything downstream (dedup, inclusion rules, formatting) is plain
+  # deterministic Python.
+  extract_model: "claude-haiku-4-5-20251001"
+
+gmail:
+  # The Gmail label applied (by a Gmail filter, upstream of this tool)
+  # to incoming school emails.
+  label: "School"
+
+storage:
+  # SQLite file used as the "sent log" / dedup ground truth — what the
+  # tool checks to avoid repeating itself, plus when it last ran.
+  db_path: "data/sent_log.db"
+
+  # Where that sent log is kept between runs. Pick one:
+  #
+  #   ""  (empty) — LOCAL-ONLY. The file at db_path is the only copy.
+  #       Simplest option; fine if this only ever runs on one computer.
+  #
+  #   A Google Drive folder ID — DRIVE-SYNCED. Downloaded before every
+  #       real run and uploaded after, so a run on your laptop and a run
+  #       on GitHub Actions share one history. REQUIRED for the GitHub
+  #       Actions setup (a cloud runner's disk is wiped after each run).
+  #       The ID is the last part of the folder's URL in Drive:
+  #       https://drive.google.com/drive/folders/THIS_PART_HERE
+  #
+  # This key must be present either way — see README.md "Setup".
+  drive_folder_id: ""

@@ -1,0 +1,47 @@
+# NOT a real family — a simulated second family, spanning four schools
+# and grades K through 9, used specifically to test whether the
+# category-free, flag-based design actually generalizes beyond the one
+# family (and two schools) it was built and tuned against. Built from
+# real emails a friend shared, with names, addresses, and staff details
+# genericized the same way every other fixture in this project is.
+
+schools:
+  - name: "Example Elementary North"
+    type: "K-5"
+    relevant_classes:
+      - "4th Grade"
+
+  - name: "Example Elementary South"
+    type: "K-5"
+    relevant_classes:
+      - "Kindergarten"
+      - "2nd Grade"
+
+  - name: "Example Middle School"
+    type: "6-8"
+    relevant_classes:
+      - "7th Grade"
+
+  - name: "Example High School"
+    type: "9-12"
+    relevant_classes:
+      - "9th Grade"
+
+rules:
+  deadline_window_days: 7
+  volunteer_asks_only_for_relevant_classes: true
+  skip_unrelated_grades: true
+  dedup_lookback_days: 21
+
+notification:
+  slack_channel: "#test-friend-family"
+
+models:
+  extract_model: "claude-haiku-4-5-20251001"
+
+gmail:
+  label: "School"
+
+storage:
+  db_path: "data/friend_test_sent_log.db"
+  drive_folder_id: ""  # eval-only config, never syncs anywhere

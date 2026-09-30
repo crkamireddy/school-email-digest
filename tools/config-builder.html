@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Config Builder · School Email Digest</title>
+<!--
+  Builds a config.yaml for this project from a short form, entirely in
+  the browser: no server, no network requests, no external scripts. What
+  someone types (school and class names) never leaves their computer.
+
+  Open this file directly in a browser (double-click it, or drag it onto
+  a browser window).
+
+  KEEP IN SYNC with src/config.py's load_config(): if a config key is
+  added, renamed, or becomes required there, toYaml() below has to
+  change too, or this page will produce configs that fail to load.
+-->
+<style>
+  :root {
+    --bg: #f7f6f3;
+    --panel: #ffffff;
+    --text: #1f2328;
+    --muted: #5f6670;
+    --border: #d9d6cf;
+    --accent: #2f6f5e;
+    --accent-text: #ffffff;
+    --accent-soft: #e3efe9;
+    --danger: #b3261e;
+    --danger-soft: #fbeae8;
+    --code-bg: #f1efea;
+    --focus: #2f6f5e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17191c;
+      --panel: #202328;
+      --text: #e6e7e9;
+      --muted: #a0a6ae;
+      --border: #3a3f46;
+      --accent: #6cc3a8;
+      --accent-text: #0f1a16;
+      --accent-soft: #22362f;
+      --danger: #f2877e;
+      --danger-soft: #3a2422;
+      --code-bg: #1a1c20;
+      --focus: #6cc3a8;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 32px 20px 64px;
+  }
+  header h1 { margin: 0 0 6px; font-size: 1.6rem; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); max-width: 62ch; }
+  .privacy {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    background: var(--accent-soft);
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+    gap: 28px;
+    margin-top: 28px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  section.step {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  section.step > h2 {
+    margin: 0 0 4px;
+    font-size: 1.05rem;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .num {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .step-intro { margin: 0 0 16px; color: var(--muted); }
+
+  label.field { display: block; margin-bottom: 14px; }
+  .label-text { display: block; font-weight: 600; margin-bottom: 4px; }
+  .hint { display: block; color: var(--muted); font-size: 0.87rem; margin-top: 4px; }
+  input[type="text"], input[type="number"], select {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  [aria-invalid="true"] { border-color: var(--danger) !important; background: var(--danger-soft) !important; }
+
+  fieldset.school {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px 6px;
+    margin: 0 0 14px;
+  }
+  fieldset.school legend { font-weight: 700; padding: 0 6px; }
+  .school-head { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 560px) { .school-head { grid-template-columns: minmax(0, 1fr); } }
+
+  .classes-title { font-weight: 600; margin: 4px 0 2px; }
+  .class-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto;
+    gap: 8px;
+    margin-bottom: 8px;
+    align-items: center;
+  }
+  @media (max-width: 560px) {
+    /* Stack each class and its grade as one bordered group, so it's clear
+       which grade belongs to which class once the column headers are gone. */
+    .class-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .class-row [data-k="class-name"] { grid-column: 1; grid-row: 1; }
+    .class-row [data-action="remove-class"] { grid-column: 2; grid-row: 1; }
+    .class-row .grade { grid-column: 1 / -1; grid-row: 2; }
+  }
+  .class-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 36px;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  @media (max-width: 560px) { .class-cols { display: none; } }
+
+  button {
+    font: inherit;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.link { border: none; background: none; color: var(--accent); padding: 4px 0; text-decoration: underline; }
+  button.icon { width: 36px; height: 36px; padding: 0; line-height: 1; font-size: 1.1rem; color: var(--muted); }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-text);
+    font-weight: 600;
+  }
+  .row-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin: 4px 0 10px; }
+
+  .choice {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .choice input { margin-top: 4px; }
+  .choice strong { display: block; }
+
+  details.advanced summary { cursor: pointer; font-weight: 600; }
+  details.advanced[open] summary { margin-bottom: 14px; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  @media (max-width: 560px) { .two { grid-template-columns: minmax(0, 1fr); } }
+
+  aside.output { position: sticky; top: 16px; }
+  @media (max-width: 900px) { aside.output { position: static; } }
+  .status {
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .status.ready { background: var(--accent-soft); border-color: var(--accent); }
+  .status.blocked { background: var(--danger-soft); border-color: var(--danger); }
+  .status h3 { margin: 0 0 4px; font-size: 0.95rem; }
+  .status ul { margin: 6px 0 0; padding-left: 18px; }
+  .status li { margin: 2px 0; }
+  .actions { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .actions .primary { flex: 1 1 auto; }
+  .preview-label { font-size: 0.8rem; color: var(--muted); margin: 0 0 4px; }
+  pre#yaml {
+    margin: 0;
+    padding: 14px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-x: auto;
+    max-height: 60vh;
+    white-space: pre;
+  }
+  .next {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    font-size: 0.9rem;
+  }
+  .next h3 { margin: 0 0 6px; font-size: 0.95rem; }
+  .next ol { margin: 0; padding-left: 18px; }
+  .next li { margin: 4px 0; }
+  code {
+    font: 0.88em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Config Builder</h1>
+    <p>Answer a few questions about your family's schools and where you want
+      digests to go. You'll get a <code>config.yaml</code> file to put in your
+      <code>school-email-digest</code> folder.</p>
+    <span class="privacy">🔒 Everything stays in this browser tab. Nothing you type is sent anywhere.</span>
+  </header>
+
+  <div class="layout">
+    <form id="form" novalidate>
+
+      <!-- 1. Schools -->
+      <section class="step">
+        <h2><span class="num">1</span> Schools and classes</h2>
+        <p class="step-intro">Add each school that sends you email, and the class
+          (or classes) your kids are in there. The digest keeps schoolwide news
+          plus anything for these classes, and skips things aimed at other
+          grades.</p>
+
+        <div id="schools"></div>
+
+        <div class="row-actions">
+          <button type="button" id="add-school">+ Add another school</button>
+          <button type="button" class="link" id="load-example">Fill in an example to see how it works</button>
+        </div>
+      </section>
+
+      <!-- 2. Slack + Gmail -->
+      <section class="step">
+        <h2><span class="num">2</span> Where email comes from and where digests go</h2>
+        <p class="step-intro">Both of these need to be set up first. See README.md,
+          Part 1, steps 3 and 6.</p>
+
+        <label class="field">
+          <span class="label-text">Slack channel ID</span>
+          <input type="text" id="slack" placeholder="C0123456789" autocomplete="off" spellcheck="false">
+          <span class="hint">The channel the digest posts to. To find its ID, open the
+            channel in Slack, click the channel name at the top, and look at the
+            bottom of the About tab: the Channel ID starts with C and has a copy
+            button. A link to the channel works too. Remember to invite your Slack
+            app to the channel.</span>
+        </label>
+
+        <label class="field">
+          <span class="label-text">Gmail label</span>
+          <input type="text" id="label" value="School" autocomplete="off" spellcheck="false">
+          <span class="hint">The label your Gmail filter puts on school emails. Only
+            emails with this label are read. Use one word, no spaces or slashes.</span>
+        </label>
+      </section>
+
+      <!-- 3. Storage -->
+      <section class="step">
+        <h2><span class="num">3</span> How you'll run it</h2>
+        <p class="step-intro">The digest keeps a small log of what it's already sent
+          so it doesn't repeat itself. This decides where that log lives.</p>
+
+        <label class="choice">
+          <input type="radio" name="storage" value="local" checked>
+          <span><strong>On my computer only</strong>
+            <span class="hint">Simplest. Choose this if you'll only run it from one
+              computer (README Part 1).</span></span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="storage" value="drive">
+          <span><strong>Synced through Google Drive</strong>
+            <span class="hint">Required for running on GitHub Actions, so it works
+              while your computer is off (README Part 2).</span></span>
+        </label>
+
+        <label class="field" id="drive-field" hidden>
+          <span class="label-text">Google Drive folder link or ID</span>
+          <input type="text" id="drive" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off" spellcheck="false">
+          <span class="hint">Create an empty folder in Drive, open it, and paste the
+            address from your browser's address bar. <span id="drive-parsed"></span></span>
+        </label>
+      </section>
+
+      <!-- 4. Volunteer asks -->
+      <section class="step">
+        <h2><span class="num">4</span> Volunteer requests</h2>
+        <p class="step-intro">Schools ask for volunteers constantly. Which requests
+          should reach you?</p>
+
+        <label class="choice">
+          <input type="radio" name="volunteer" value="scoped" checked>
+          <span><strong>Only ones for my kids' classes (recommended)</strong>
+            <span class="hint">A request naming some other class or grade, like an 8th
+              grade chaperone ask when you have no 8th grader, is skipped. General
+              schoolwide requests still come through.</span></span>
+        </label>
+        <label class="choice">
+          <input type="radio" name="volunteer" value="all">
+          <span><strong>All of them</strong>
+            <span class="hint">Every volunteer request, whichever class it's for.</span></span>
+        </label>
+      </section>
+
+      <!-- 5. Advanced -->
+      <section class="step">
+        <details class="advanced">
+          <summary>Advanced settings (the defaults are fine for most families)</summary>
+
+          <div class="two">
+            <label class="field">
+              <span class="label-text">Deadline window (days)</span>
+              <input type="number" id="deadline" value="7" min="1" max="60" step="1">
+              <span class="hint">A fundraiser or other repeated promotion is shown again
+                once its deadline is this close, even if it's been sent before.</span>
+            </label>
+            <label class="field">
+              <span class="label-text">Repeat lookback (days)</span>
+              <input type="number" id="lookback" value="21" min="1" max="365" step="1">
+              <span class="hint">A promotion sent within this many days isn't sent again
+                (unless its deadline is close).</span>
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="label-text">Claude model</span>
+            <select id="model">
+              <option value="claude-haiku-4-5-20251001" selected>Claude Haiku 4.5 (default): fast and inexpensive</option>
+              <option value="claude-sonnet-5">Claude Sonnet 5: more capable, costs more per email</option>
+            </select>
+            <span class="hint">Start with the default. Only switch if you see it
+              getting ambiguous emails wrong after watching it for a while.</span>
+          </label>
+
+          <label class="field">
+            <span class="label-text">Sent log file location</span>
+            <input type="text" id="dbpath" value="data/sent_log.db" autocomplete="off" spellcheck="false">
+            <span class="hint">Where the log file is kept, relative to the project folder.</span>
+          </label>
+        </details>
+      </section>
+    </form>
+
+    <aside class="output" aria-label="Your config file">
+      <div class="status" id="status" role="status" aria-live="polite"></div>
+      <div class="actions">
+        <button type="button" class="primary" id="download">Download config.yaml</button>
+        <button type="button" id="copy">Copy</button>
+      </div>
+      <p class="preview-label">Preview. This is exactly what will be saved.</p>
+      <pre id="yaml"></pre>
+
+      <div class="next">
+        <h3>After downloading</h3>
+        <ol>
+          <li>Move the file into your <code>school-email-digest</code> folder. Make sure
+            it's named exactly <code>config.yaml</code>, not <code>config (1).yaml</code>
+            or <code>config.yaml.txt</code>.</li>
+          <li>Try it: <code>python run.py --dry-run --since-days 7</code></li>
+          <li>Running on GitHub Actions? Re-encode the file and update the
+            <code>SCHOOL_DIGEST_CONFIG_YAML_B64</code> secret (README Part 2, step 6).</li>
+        </ol>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<template id="school-tpl">
+  <fieldset class="school">
+    <legend>School</legend>
+    <div class="school-head">
+      <label class="field">
+        <span class="label-text">School name</span>
+        <input type="text" data-k="school-name" placeholder="Example Elementary" autocomplete="off">
+        <span class="hint">As it usually appears in the school's emails.</span>
+      </label>
+      <label class="field">
+        <span class="label-text">Type or grade range</span>
+        <input type="text" data-k="school-type" list="school-types" placeholder="K-5" autocomplete="off">
+        <span class="hint">e.g. preschool, K-5, K-8, 6-8, 9-12</span>
+      </label>
+    </div>
+
+    <p class="classes-title">Your kids' classes at this school</p>
+    <span class="hint" style="margin: 0 0 10px">A room number ("Room 12"), a teacher
+      ("Ms. Rivera's class"), a group name ("Ladybugs"), or just the grade
+      ("2nd Grade"). If the name isn't a grade, add the grade so grade-level
+      announcements still match.</span>
+    <div class="class-cols" aria-hidden="true"><span>Class name</span><span>Grade (optional)</span><span></span></div>
+    <div data-k="classes"></div>
+
+    <div class="row-actions">
+      <button type="button" data-action="add-class">+ Add another class</button>
+      <button type="button" class="link" data-action="remove-school">Remove this school</button>
+    </div>
+  </fieldset>
+</template>
+
+<template id="class-tpl">
+  <div class="class-row">
+    <input type="text" data-k="class-name" placeholder="Room 12" aria-label="Class name" autocomplete="off">
+    <input type="text" class="grade" data-k="class-grade" placeholder="Grade, optional (e.g. 2nd grade)" aria-label="Grade (optional)" autocomplete="off">
+    <button type="button" class="icon" data-action="remove-class" aria-label="Remove this class" title="Remove this class">×</button>
+  </div>
+</template>
+
+<datalist id="school-types">
+  <option value="preschool"></option>
+  <option value="K-5"></option>
+  <option value="K-8"></option>
+  <option value="6-8"></option>
+  <option value="9-12"></option>
+  <option value="K-12"></option>
+</datalist>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const form = $("form");
+  const schoolsEl = $("schools");
+  const schoolTpl = $("school-tpl");
+  const classTpl = $("class-tpl");
+
+  // Until someone tries to download, only flag fields they've already
+  // visited. An empty form shouldn't open with a wall of red.
+  let downloadAttempted = false;
+
+  // Same values as config.example.yaml.
+  const EXAMPLE = [
+    { name: "Example Elementary", type: "K-8", classes: [
+      { name: "Room 12", grade: "2nd grade" },
+      { name: "Room 5", grade: "kindergarten" },
+    ]},
+    { name: "Example Preschool", type: "preschool", classes: [
+      { name: "Ladybugs", grade: "" },
+      { name: "Fireflies", grade: "" },
+    ]},
+  ];
+
+  // ---------- building the form ----------
+
+  function addClass(schoolEl, data) {
+    const row = classTpl.content.firstElementChild.cloneNode(true);
+    if (data) {
+      row.querySelector('[data-k="class-name"]').value = data.name || "";
+      row.querySelector('[data-k="class-grade"]').value = data.grade || "";
+    }
+    schoolEl.querySelector('[data-k="classes"]').appendChild(row);
+    return row;
+  }
+
+  function addSchool(data) {
+    const el = schoolTpl.content.firstElementChild.cloneNode(true);
+    schoolsEl.appendChild(el);
+    if (data) {
+      el.querySelector('[data-k="school-name"]').value = data.name;
+      el.querySelector('[data-k="school-type"]').value = data.type;
+      data.classes.forEach((c) => addClass(el, c));
+    } else {
+      addClass(el);
+    }
+    return el;
+  }
+
+  function formHasInput() {
+    return [...schoolsEl.querySelectorAll("input")].some((i) => i.value.trim()) ||
+      $("slack").value.trim() !== "";
+  }
+
+  // ---------- reading and checking ----------
+
+  // Collapse anything a single-line YAML value shouldn't contain (tabs,
+  // pasted newlines) and trim.
+  function clean(s) {
+    return s.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  // Accepts a full Drive folder URL (any of its common shapes) or a bare
+  // folder ID, and returns just the ID, or null if it doesn't look like one.
+  function parseDriveId(raw) {
+    const s = raw.trim();
+    if (!s) return null;
+    let m = s.match(/\/folders\/([A-Za-z0-9_-]{10,})/) || s.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+    if (m) return m[1];
+    if (/^[A-Za-z0-9_-]{10,}$/.test(s)) return s;
+    return null;
+  }
+
+  // Returns { config, problems }. Each problem is { msg, el }; el is the
+  // input to highlight, if there is one.
+  function read() {
+    const problems = [];
+    const need = (el, msg) => problems.push({ msg, el });
+
+    const schools = [];
+    const seenNames = new Map();
+    const schoolEls = [...schoolsEl.querySelectorAll("fieldset.school")];
+    if (schoolEls.length === 0) need(null, "Add at least one school.");
+
+    schoolEls.forEach((sEl, i) => {
+      const label = `School ${i + 1}`;
+      const nameEl = sEl.querySelector('[data-k="school-name"]');
+      const typeEl = sEl.querySelector('[data-k="school-type"]');
+      const name = clean(nameEl.value);
+      const type = clean(typeEl.value);
+      const displayName = name || label;
+
+      if (!name) need(nameEl, `${label}: school name`);
+      else {
+        // Already-sent history is tracked per school name, so two schools
+        // with the same name would share (and confuse) one history.
+        const key = name.toLowerCase();
+        if (seenNames.has(key)) need(nameEl, `${displayName}: this school name is listed twice`);
+        seenNames.set(key, true);
+      }
+      if (!type) need(typeEl, `${displayName}: type or grade range`);
+
+      const classes = [];
+      const rows = [...sEl.querySelectorAll(".class-row")].map((row) => ({
+        nameEl: row.querySelector('[data-k="class-name"]'),
+        name: clean(row.querySelector('[data-k="class-name"]').value),
+        grade: clean(row.querySelector('[data-k="class-grade"]').value),
+      }));
+      // Completely blank rows are ignored, as long as at least one row
+      // has something in it.
+      const filled = rows.filter((r) => r.name || r.grade);
+      if (filled.length === 0) {
+        need(rows.length ? rows[0].nameEl : null, `${displayName}: at least one class name`);
+      }
+      filled.forEach((r) => {
+        if (!r.name) { need(r.nameEl, `${displayName}: class name for grade "${r.grade}"`); return; }
+        classes.push({ name: r.name, grade: r.grade });
+      });
+
+      schools.push({ name, type, classes });
+    });
+
+    // Slack channel ID, e.g. C0123456789. Also accepts a pasted channel
+    // link (…/archives/C0123456789 or app.slack.com/client/T…/C0123456789)
+    // and pulls the ID out. Not uppercased automatically: a lowercase
+    // channel NAME like "classroom12a" would otherwise pass as an ID.
+    const slackEl = $("slack");
+    const slackRaw = clean(slackEl.value);
+    let slack = "";
+    if (!slackRaw) need(slackEl, "Slack channel ID");
+    else {
+      const fromLink = slackRaw.match(/\/(?:archives|client\/[A-Za-z0-9]+)\/([CG][A-Z0-9]{8,12})(?:[/?#]|$)/);
+      const candidate = fromLink ? fromLink[1] : slackRaw;
+      if (/^[CG][A-Z0-9]{8,12}$/.test(candidate) && /\d/.test(candidate)) slack = candidate;
+      else if (/^#?[a-z0-9_-]+$/.test(slackRaw)) need(slackEl, `"${slackRaw}" looks like a channel name. Paste the channel ID instead (starts with C, e.g. C0123456789)`);
+      else need(slackEl, `Slack channel ID "${slackRaw}" doesn't look right: it starts with C, then capital letters and numbers (e.g. C0123456789)`);
+    }
+
+    // Gmail label: it's dropped straight into a Gmail search
+    // ("label:School"), where a space or slash breaks the search.
+    const labelEl = $("label");
+    const label = clean(labelEl.value);
+    if (!label) need(labelEl, "Gmail label");
+    else if (/[\s/]/.test(label)) need(labelEl, "Gmail label: use one word with no spaces or slashes");
+
+    const useDrive = form.elements.storage.value === "drive";
+    const driveEl = $("drive");
+    let driveId = "";
+    if (useDrive) {
+      const parsed = parseDriveId(driveEl.value);
+      if (!driveEl.value.trim()) need(driveEl, "Google Drive folder link");
+      else if (!parsed) need(driveEl, "Google Drive folder: that doesn't look like a folder link or ID");
+      else driveId = parsed;
+    }
+    $("drive-parsed").textContent = useDrive && driveId ? `Folder ID: ${driveId}` : "";
+
+    const intIn = (id, min, max, what) => {
+      const el = $(id);
+      const n = Number(el.value);
+      if (!Number.isInteger(n) || n < min || n > max) {
+        need(el, `${what}: a whole number from ${min} to ${max}`);
+        return Number(el.defaultValue);
+      }
+      return n;
+    };
+    const deadline = intIn("deadline", 1, 60, "Deadline window");
+    const lookback = intIn("lookback", 1, 365, "Repeat lookback");
+
+    const dbEl = $("dbpath");
+    const dbPath = clean(dbEl.value);
+    if (!dbPath) need(dbEl, "Sent log file location");
+
+    return {
+      problems,
+      config: {
+        schools,
+        deadline,
+        volunteerScoped: form.elements.volunteer.value === "scoped",
+        lookback,
+        slack,
+        model: $("model").value,
+        label,
+        dbPath,
+        driveId,
+      },
+    };
+  }
+
+  // ---------- writing YAML ----------
+
+  // Every string goes out double-quoted, with backslashes and quotes
+  // escaped, so a name like  St. Mary's "Little Lambs"  can't break the file.
+  function q(s) {
+    return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  }
+
+  // Mirrors the structure load_config() in src/config.py expects.
+  function toYaml(c) {
+    const L = [];
+    L.push("# School Email Digest config, made with tools/config-builder.html.");
+    L.push("# Save as config.yaml in the project folder. Safe to edit by hand;");
+    L.push("# config.example.yaml explains every setting.");
+    L.push("");
+    L.push(c.schools.length ? "schools:" : "schools: []");
+    c.schools.forEach((s) => {
+      L.push(`  - name: ${q(s.name)}`);
+      L.push(`    type: ${q(s.type)}`);
+      if (!s.classes.length) { L.push("    relevant_classes: []"); return; }
+      L.push("    relevant_classes:");
+      s.classes.forEach((cl) => {
+        if (cl.grade) {
+          L.push(`      - name: ${q(cl.name)}`);
+          L.push(`        grade_note: ${q(cl.grade)}`);
+        } else {
+          L.push(`      - ${q(cl.name)}`);
+        }
+      });
+    });
+    L.push("");
+    L.push("rules:");
+    L.push(`  deadline_window_days: ${c.deadline}`);
+    L.push(`  volunteer_asks_only_for_relevant_classes: ${c.volunteerScoped}`);
+    L.push("  # Required by the config loader, but not currently used by the code.");
+    L.push("  skip_unrelated_grades: true");
+    L.push(`  dedup_lookback_days: ${c.lookback}`);
+    L.push("");
+    L.push("notification:");
+    L.push(`  slack_channel: ${q(c.slack)}`);
+    L.push("");
+    L.push("models:");
+    L.push(`  extract_model: ${q(c.model)}`);
+    L.push("");
+    L.push("gmail:");
+    L.push(`  label: ${q(c.label)}`);
+    L.push("");
+    L.push("storage:");
+    L.push(`  db_path: ${q(c.dbPath)}`);
+    L.push(c.driveId
+      ? "  # Synced through this Google Drive folder."
+      : "  # Empty = local-only: the sent log stays on this computer.");
+    L.push(`  drive_folder_id: ${q(c.driveId)}`);
+    return L.join("\n") + "\n";
+  }
+
+  // ---------- rendering ----------
+
+  function render() {
+    const { config, problems } = read();
+
+    // Legends, and hiding remove buttons that would leave nothing behind.
+    const schoolEls = [...schoolsEl.querySelectorAll("fieldset.school")];
+    schoolEls.forEach((sEl, i) => {
+      sEl.querySelector("legend").textContent = `School ${i + 1}`;
+      sEl.querySelector('[data-action="remove-school"]').hidden = schoolEls.length === 1;
+      const rows = sEl.querySelectorAll(".class-row");
+      rows.forEach((r) => { r.querySelector('[data-action="remove-class"]').hidden = rows.length === 1; });
+    });
+    $("drive-field").hidden = form.elements.storage.value !== "drive";
+
+    // Highlight problem fields: visited ones, or all after a download attempt.
+    form.querySelectorAll("[aria-invalid]").forEach((el) => el.removeAttribute("aria-invalid"));
+    problems.forEach((p) => {
+      if (p.el && (downloadAttempted || p.el.dataset.touched)) p.el.setAttribute("aria-invalid", "true");
+    });
+
+    const status = $("status");
+    status.replaceChildren();
+    if (problems.length === 0) {
+      status.className = "status ready";
+      const h = document.createElement("h3");
+      h.textContent = "✓ Ready to download";
+      const p = document.createElement("div");
+      p.textContent = "Everything required is filled in.";
+      status.append(h, p);
+    } else {
+      status.className = "status" + (downloadAttempted ? " blocked" : "");
+      const h = document.createElement("h3");
+      h.textContent = downloadAttempted
+        ? "Fill these in before downloading:"
+        : `Still needed (${problems.length}):`;
+      const ul = document.createElement("ul");
+      problems.slice(0, 8).forEach((p) => {
+        const li = document.createElement("li");
+        li.textContent = p.msg;
+        ul.appendChild(li);
+      });
+      if (problems.length > 8) {
+        const li = document.createElement("li");
+        li.textContent = `…and ${problems.length - 8} more`;
+        ul.appendChild(li);
+      }
+      status.append(h, ul);
+    }
+
+    $("yaml").textContent = toYaml(config);
+    return problems;
+  }
+
+  // ---------- events ----------
+
+  // One listener on the whole form handles every input, including rows
+  // added later ("event delegation"), so new rows need no wiring of their own.
+  form.addEventListener("input", render);
+  form.addEventListener("change", render);
+  form.addEventListener("focusout", (e) => {
+    if (e.target.matches("input")) { e.target.dataset.touched = "1"; render(); }
+  });
+  form.addEventListener("submit", (e) => e.preventDefault());
+
+  form.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const schoolEl = btn.closest("fieldset.school");
+    switch (btn.dataset.action) {
+      case "add-class":
+        addClass(schoolEl).querySelector("input").focus();
+        break;
+      case "remove-class":
+        btn.closest(".class-row").remove();
+        break;
+      case "remove-school":
+        schoolEl.remove();
+        break;
+    }
+    render();
+  });
+
+  $("add-school").addEventListener("click", () => {
+    addSchool().querySelector("input").focus();
+    render();
+  });
+
+  $("load-example").addEventListener("click", () => {
+    if (formHasInput() && !confirm("Replace what you've entered with the example?")) return;
+    schoolsEl.replaceChildren();
+    EXAMPLE.forEach(addSchool);
+    $("slack").value = "C0123456789";
+    render();
+  });
+
+  $("download").addEventListener("click", () => {
+    downloadAttempted = true;
+    const problems = render();
+    if (problems.length) {
+      const first = problems.find((p) => p.el);
+      if (first) {
+        const adv = first.el.closest("details");
+        if (adv) adv.open = true;
+        first.el.focus();
+      }
+      return;
+    }
+    // The browser builds the file in memory (a Blob), gives it a temporary
+    // local URL, and "clicks" a hidden link to save it. No upload involved.
+    const blob = new Blob([$("yaml").textContent], { type: "application/x-yaml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "config.yaml";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  $("copy").addEventListener("click", async () => {
+    const text = $("yaml").textContent;
+    const btn = $("copy");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      // Older browsers, or pages opened in ways that block the clipboard API.
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+  });
+
+  addSchool();
+  render();
+})();
+</script>
+</body>
+</html>
