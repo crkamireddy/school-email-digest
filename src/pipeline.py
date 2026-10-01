@@ -36,6 +36,29 @@ def _log_name(email) -> str:
     return repr(email.subject)
 
 
+def _failure_notice(failed_subjects: list[str], unrecorded_subjects: list[str]) -> str:
+    """The Slack warning for a run where some emails went wrong. Two
+    different situations, worded differently so the warning is never a
+    false alarm: an email that never got posted (go read it yourself),
+    vs. one that DID get posted but couldn't be recorded (nothing to do
+    now — but a later reminder about it may come through as if new)."""
+    parts = []
+    if failed_subjects:
+        parts.append(
+            f"⚠️ Couldn't process {len(failed_subjects)} email(s) this run — "
+            "worth checking these directly:\n"
+            + "\n".join(f"• {s}" for s in failed_subjects)
+        )
+    if unrecorded_subjects:
+        parts.append(
+            f"⚠️ Posted {len(unrecorded_subjects)} email(s) above but couldn't record "
+            "them as sent — nothing to do now, but a later reminder about these may "
+            "get posted again as if new:\n"
+            + "\n".join(f"• {s}" for s in unrecorded_subjects)
+        )
+    return "\n\n".join(parts)
+
+
 def run(config: Config | None = None, dry_run: bool = False, since_days: int | None = None) -> list[str]:
     """Runs one full pass. Returns the list of Slack messages that were
     (or, in dry_run, would have been) posted — handy for tests and for
@@ -87,7 +110,8 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
     log.info("Fetched %d new labeled email(s) since %s", len(emails), since.isoformat())
 
     posted: list[str] = []
-    failed_subjects: list[str] = []
+    failed_subjects: list[str] = []      # never reached Slack
+    unrecorded_subjects: list[str] = []  # reached Slack, but not the sent log
 
     for email in emails:
         # A single email failing here — for any reason, not just the
@@ -98,6 +122,7 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
         # the sync at the end (cursor advance + Drive upload) is what
         # protects everything that succeeded earlier in this exact run
         # from getting silently lost and re-sent next time.
+        was_posted = False
         try:
             extraction = extract_email(client, config, email)
 
@@ -120,6 +145,7 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
             if not dry_run:
                 post_message(config.slack_channel, decision.slack_text)
             posted.append(decision.slack_text)
+            was_posted = True
             if decision.is_reply_notice:
                 log.info("Posted FYI notice: reply to %s — nothing new", _log_name(email))
             else:
@@ -141,25 +167,32 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
             # one email should not be allowed to take down the rest of
             # the batch or skip the sync below. Logged with the full
             # traceback so it's still fully diagnosable — just not fatal.
-            failed_subjects.append(email.subject)
-            log.exception("Failed to process email %s — skipping it, continuing with the rest",
-                           _log_name(email))
+            # Which list it goes in depends on whether the post already
+            # went out: if it did, the email WAS handled — only the
+            # record of it is missing, which is a different problem
+            # (possible repeat later) from "you never saw this at all".
+            if was_posted:
+                unrecorded_subjects.append(email.subject)
+                log.exception("Posted email %s but couldn't record it in the sent log — "
+                              "continuing with the rest", _log_name(email))
+            else:
+                failed_subjects.append(email.subject)
+                log.exception("Failed to process email %s — skipping it, continuing with the rest",
+                              _log_name(email))
 
-    if failed_subjects:
-        log.warning("%d of %d email(s) failed this run and were skipped — "
-                     "check the log above for details", len(failed_subjects), len(emails))
+    if failed_subjects or unrecorded_subjects:
+        log.warning("%d of %d email(s) failed this run (%d never posted, %d posted but "
+                    "not recorded) — check the log above for details",
+                    len(failed_subjects) + len(unrecorded_subjects), len(emails),
+                    len(failed_subjects), len(unrecorded_subjects))
         # A warning sitting in a log someone would have to go looking for
         # isn't actually seen — the whole point of this tool is that
         # nobody has to go check things themselves. Post it where it'll
         # actually get seen, with enough detail to go find the email
         # directly rather than a vague "something went wrong."
         if not dry_run:
-            subjects_list = "\n".join(f"• {s}" for s in failed_subjects)
-            post_message(
-                config.slack_channel,
-                f"⚠️ Couldn't process {len(failed_subjects)} email(s) this run — "
-                f"worth checking these directly:\n{subjects_list}",
-            )
+            post_message(config.slack_channel,
+                         _failure_notice(failed_subjects, unrecorded_subjects))
 
     if not dry_run:
         dedup_store.set_last_run(config.db_path, run_start.isoformat())

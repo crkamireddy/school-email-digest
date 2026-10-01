@@ -123,3 +123,26 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
 - **Local config.yaml gained `storage.drive_folder_id`**, set to the
   same folder the old code had hard-coded, so history carries over.
   Bucket: cheap.
+
+## 2026-10-01
+
+- **Sent-log migration: old single-`category` table is rebuilt into the
+  two-flag layout automatically in `init_db()`.** Why: the Sept 15
+  redesign changed the table, but `CREATE TABLE IF NOT EXISTS` never
+  alters an existing one, so every `log_sent()` since then failed
+  ("no column named requests_volunteer_help") — posts went out but were
+  never recorded, so dedup forgot them. Mapping mirrors the old
+  `decide()`: volunteer_ask → volunteer flag, fundraiser → promotional
+  flag, schedule_change/deadline/classroom_update → neither. One
+  transaction; a failure rolls back to the untouched old table. Done in
+  code (not a one-off fix to the Drive file) so it's tested and also
+  fixes anyone else's older sent log. Verified on a downloaded copy of
+  the real log: 45 rows → 38 neither / 6 volunteer / 1 promotional,
+  cursor preserved. Posts from Sept 15–17 and Sept 30 remain unrecorded
+  (not backfilled — user's choice). Bucket: expensive (schema, real
+  data) — confirmed with user.
+- **Per-email failure warning in Slack now distinguishes "couldn't
+  process" (never posted) from "posted but couldn't record it" (may
+  repeat later).** Why: a sent-log write failing after a successful post
+  produced a false "Couldn't process" alarm. Bucket: cheap — confirmed
+  with user.

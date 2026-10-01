@@ -43,8 +43,46 @@ def _connect(db_path: str):
         conn.close()
 
 
+# Sent logs created before the two-flag redesign have a single `category`
+# column instead of the two flags. CREATE TABLE IF NOT EXISTS leaves an
+# existing table alone, so without this every log_sent() on an old file
+# fails. SQLite can't drop a NOT NULL column in place, so rebuild the
+# table: new layout, copy every row across, swap it in. Old categories
+# map onto the flags the same way the old decide() treated them —
+# volunteer_ask was the volunteer case, fundraiser the promotional one,
+# and schedule_change / deadline / classroom_update were always-included
+# (neither flag). Runs as one transaction: if any statement fails, the
+# whole rebuild rolls back and the old table is untouched.
+_MIGRATE_CATEGORY_TO_FLAGS = """
+BEGIN;
+CREATE TABLE sent_log_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_key TEXT NOT NULL,
+    school TEXT NOT NULL,
+    requests_volunteer_help INTEGER NOT NULL,
+    is_promotional INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    message_id TEXT,
+    date_sent TEXT NOT NULL
+);
+INSERT INTO sent_log_new (id, topic_key, school, requests_volunteer_help,
+                          is_promotional, summary, message_id, date_sent)
+SELECT id, topic_key, school,
+       CASE WHEN category = 'volunteer_ask' THEN 1 ELSE 0 END,
+       CASE WHEN category = 'fundraiser' THEN 1 ELSE 0 END,
+       summary, message_id, date_sent
+FROM sent_log;
+DROP TABLE sent_log;
+ALTER TABLE sent_log_new RENAME TO sent_log;
+COMMIT;
+"""
+
+
 def init_db(db_path: str) -> None:
     with _connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sent_log)")}
+        if "category" in columns:
+            conn.executescript(_MIGRATE_CATEGORY_TO_FLAGS)
         conn.executescript(_SCHEMA)
 
 
