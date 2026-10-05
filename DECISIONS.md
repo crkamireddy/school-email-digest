@@ -158,3 +158,26 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   Rejected: Gmail filter on subject wording (user tried it; brittle,
   misses non-English/odd phrasings, could hide "Ms. X out — sub info").
   Bucket: cheap — confirmed with user.
+
+## 2026-10-05
+
+- **Scheduled runs moved from :30 to :17 past the hour** (14:17 / 19:17
+  / 23:17 UTC). Why: three labeled emails sat unposted because GitHub
+  hadn't started the 14:30 run 6+ hours later; all week, runs had
+  started 3–4 hours late. GitHub queues scheduled jobs and :00/:30 are
+  its busiest minutes. Helps but doesn't guarantee — considered and
+  deferred: a 4th buffer run, or an external trigger. Bucket: cheap —
+  confirmed with user.
+- **Cursor and Gmail query are now explicit UTC; query uses Unix
+  seconds (`after:<epoch>`) instead of `after:YYYY/MM/DD`.** Why: Gmail
+  reads a date as midnight in the account's time zone, but the cursor
+  was naive UTC — after an evening Pacific run the UTC date had already
+  rolled over, so the next query would skip anything arriving between
+  that run and Pacific midnight (none lost yet, checked). Also fixes
+  Mac (Pacific) vs. GitHub (UTC) runs disagreeing about what a stored
+  cursor means. Assumption: a stored cursor with no offset is read as
+  UTC — every recent one was written by GitHub. `received_at` (the
+  "Received:" time shown to the model) deliberately left as local
+  time — separate question. Verified live: the timestamp query against
+  the real inbox returned exactly the expected emails. Bucket: cheap —
+  confirmed with user.

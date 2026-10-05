@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from googleapiclient.discovery import build
 
@@ -69,11 +69,17 @@ def _decode_body(payload: dict) -> str:
 
 
 def fetch_labeled_emails(label: str, since: datetime) -> list[RawEmail]:
+    """since must be timezone-aware (pipeline.py passes UTC)."""
     creds = get_credentials()
     service = build("gmail", "v1", credentials=creds)
 
-    since_str = since.strftime("%Y/%m/%d")
-    query = f"label:{label} after:{since_str}"
+    # Unix seconds, not a YYYY/MM/DD date: Gmail reads a date as
+    # midnight in the account's own time zone, while the cursor is UTC.
+    # After an evening Pacific run the UTC date has already rolled over,
+    # so a date query would start at the NEXT Pacific midnight and
+    # silently skip anything arriving in between. A timestamp is one
+    # exact moment with no time zone to misread.
+    query = f"label:{label} after:{int(since.timestamp())}"
 
     results = service.users().messages().list(userId="me", q=query).execute()
     message_stubs = results.get("messages", [])
@@ -89,12 +95,16 @@ def fetch_labeled_emails(label: str, since: datetime) -> list[RawEmail]:
             log.info("Skipped auto-reply: message %s", msg["id"])
             continue
         body = _decode_body(msg["payload"])
-        internal_date = datetime.fromtimestamp(int(msg["internalDate"]) / 1000)
+        epoch_seconds = int(msg["internalDate"]) / 1000
 
-        # after: is day-granularity in Gmail's search syntax, so re-check
-        # the actual timestamp here to avoid re-processing the whole day.
-        if internal_date <= since:
+        # Belt and braces: re-check the exact arrival time against the
+        # cursor in case Gmail's after: rounds at all. Both sides UTC.
+        if datetime.fromtimestamp(epoch_seconds, tz=timezone.utc) <= since:
             continue
+        # The "Received:" time shown to the model stays in this machine's
+        # local time, unchanged from before — only the cursor comparison
+        # above needed fixing.
+        internal_date = datetime.fromtimestamp(epoch_seconds)
 
         emails.append(
             RawEmail(

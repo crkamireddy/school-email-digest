@@ -386,9 +386,11 @@ two base64 secrets back into `token.json` and `config.yaml`, then runs
 `python run.py` with the other two secrets as environment variables.
 
 The schedule is set by the `cron:` lines, **in UTC**. As shipped, they're
-7:30am / 12:30pm / 4:30pm US Pacific daylight time. Edit them for your
+7:17am / 12:17pm / 4:17pm US Pacific daylight time. Edit them for your
 time zone (the comments in the file explain the format), then commit
-and push.
+and push. Keep the minute off :00 and :30 — GitHub starts scheduled
+runs when it has spare capacity, and those minutes are its busiest, so
+runs there can start hours late or get skipped.
 
 ### 8. Turn it on and test
 

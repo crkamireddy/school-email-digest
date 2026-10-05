@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from anthropic import Anthropic
 
@@ -34,6 +34,18 @@ def _log_name(email) -> str:
     if os.environ.get("GITHUB_ACTIONS") == "true":
         return f"message {email.message_id}"
     return repr(email.subject)
+
+
+def _parse_cursor(last_run_str: str) -> datetime:
+    """The stored last-run time, always as UTC. Cursors are now written
+    with their offset ("...+00:00"), so a Mac run (Pacific clock) and a
+    GitHub run (UTC clock) agree on what moment it means. Older cursors
+    were written without one — those came from GitHub's UTC clock, so a
+    missing offset is read as UTC."""
+    parsed = datetime.fromisoformat(last_run_str)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _failure_notice(failed_subjects: list[str], unrecorded_subjects: list[str]) -> str:
@@ -99,12 +111,12 @@ def run(config: Config | None = None, dry_run: bool = False, since_days: int | N
         drive_state.download_state(config.db_path, config.drive_folder_id)
     dedup_store.init_db(config.db_path)
 
-    run_start = datetime.now()
+    run_start = datetime.now(timezone.utc)
     if since_days is not None:
         since = run_start - timedelta(days=since_days)
     else:
         last_run_str = dedup_store.get_last_run(config.db_path)
-        since = datetime.fromisoformat(last_run_str) if last_run_str else run_start - timedelta(days=1)
+        since = _parse_cursor(last_run_str) if last_run_str else run_start - timedelta(days=1)
 
     emails = fetch_labeled_emails(config.gmail_label, since)
     log.info("Fetched %d new labeled email(s) since %s", len(emails), since.isoformat())

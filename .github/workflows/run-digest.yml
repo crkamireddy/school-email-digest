@@ -3,14 +3,21 @@ name: School Email Digest
 on:
   schedule:
     # Times are UTC — change these to suit your own time zone. As
-    # written, they're 7:30am, 12:30pm, and 4:30pm US Pacific daylight
+    # written, they're 7:17am, 12:17pm, and 4:17pm US Pacific daylight
     # time (UTC-7). Format is 'minute hour * * *'; e.g. 8am US Eastern
     # daylight time (UTC-4) is '0 12 * * *'. Cron here doesn't adjust for
     # daylight saving time, so runs shift by an hour when clocks change
     # unless you update these. See README.md "Cloud setup".
-    - cron: '30 14 * * *'
-    - cron: '30 19 * * *'
-    - cron: '30 23 * * *'
+    #
+    # The odd minute is deliberate: GitHub queues scheduled runs and
+    # starts them when it has capacity, and :00 / :30 are when most of
+    # the world's schedules fire — runs there were starting 3–4 hours
+    # late and occasionally not at all. An off-peak minute helps but
+    # isn't a guarantee; a late run still catches up on everything
+    # since the last one.
+    - cron: '17 14 * * *'
+    - cron: '17 19 * * *'
+    - cron: '17 23 * * *'
   workflow_dispatch:  # lets you trigger a run manually from GitHub's Actions tab, for testing
 
 jobs:

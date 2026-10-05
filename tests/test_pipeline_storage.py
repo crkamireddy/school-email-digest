@@ -50,3 +50,28 @@ def test_github_actions_without_drive_folder_refuses_to_run(tmp_path, no_network
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     with pytest.raises(RuntimeError, match="drive_folder_id"):
         run(config=_config(tmp_path, drive_folder_id=None))
+
+
+# --- cursor parsing ---
+
+from datetime import datetime, timezone
+
+from src.pipeline import _parse_cursor
+
+
+def test_old_cursor_without_offset_is_read_as_utc():
+    # Written by GitHub's UTC clock before cursors carried an offset.
+    assert _parse_cursor("2026-10-05T02:18:03") == \
+        datetime(2026, 10, 5, 2, 18, 3, tzinfo=timezone.utc)
+
+
+def test_cursor_with_offset_is_the_same_moment_in_utc():
+    assert _parse_cursor("2026-10-04T19:18:03-07:00") == \
+        datetime(2026, 10, 5, 2, 18, 3, tzinfo=timezone.utc)
+
+
+def test_run_saves_cursor_with_utc_offset(tmp_path, no_network):
+    from src import dedup_store
+    config = _config(tmp_path)
+    run(config=config)
+    assert dedup_store.get_last_run(config.db_path).endswith("+00:00")
