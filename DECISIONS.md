@@ -146,3 +146,15 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   repeat later).** Why: a sent-log write failing after a successful post
   produced a false "Couldn't process" alarm. Bucket: cheap — confirmed
   with user.
+- **Out-of-office auto-replies are skipped, two layers.** (1) Code:
+  `gmail_client._is_auto_reply()` drops any email with
+  `Auto-Submitted: auto-replied` (RFC 3834) before the model sees it —
+  free and deterministic. Deliberately NOT `auto-generated`, which bulk
+  newsletter tools may put on real announcements. (2) Prompt backstop
+  for servers that omit the header: return empty items and leave
+  `is_reply_with_no_new_info` false — that flag posts a "nothing new"
+  Slack notice, which nobody wants for an auto-reply. Reused the
+  existing empty-items path instead of adding a new output field.
+  Rejected: Gmail filter on subject wording (user tried it; brittle,
+  misses non-English/odd phrasings, could hide "Ms. X out — sub info").
+  Bucket: cheap — confirmed with user.

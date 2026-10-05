@@ -10,12 +10,35 @@ anything else generated for you.
 from __future__ import annotations
 
 import base64
+import logging
 from datetime import datetime
 
 from googleapiclient.discovery import build
 
 from .google_auth import get_credentials
 from .models import RawEmail
+
+log = logging.getLogger("school_email_digest")
+
+
+def _is_auto_reply(headers: dict[str, str]) -> bool:
+    """True for out-of-office / vacation auto-replies, e.g. the bounce
+    you get emailing a teacher over winter break. RFC 3834 has
+    auto-responders mark themselves with "Auto-Submitted: auto-replied"
+    (Gmail's vacation responder and Outlook both do).
+
+    Deliberately ONLY "auto-replied", never "auto-generated": bulk
+    senders like newsletter tools can use auto-generated on real school
+    announcements, and dropping those silently would be far worse than
+    letting an odd auto-reply through. The model prompt backs this up
+    for auto-replies whose server leaves the header off.
+
+    Header names are case-insensitive in email, and the value can carry
+    parameters after a semicolon ("auto-replied; owner-email=...")."""
+    for name, value in headers.items():
+        if name.lower() == "auto-submitted":
+            return value.split(";")[0].strip().lower() == "auto-replied"
+    return False
 
 
 def _decode_body(payload: dict) -> str:
@@ -61,6 +84,10 @@ def fetch_labeled_emails(label: str, since: datetime) -> list[RawEmail]:
             userId="me", id=stub["id"], format="full"
         ).execute()
         headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
+        if _is_auto_reply(headers):
+            # Opaque ID, not subject — safe in a public Actions log.
+            log.info("Skipped auto-reply: message %s", msg["id"])
+            continue
         body = _decode_body(msg["payload"])
         internal_date = datetime.fromtimestamp(int(msg["internalDate"]) / 1000)
 

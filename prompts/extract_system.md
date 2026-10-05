@@ -255,6 +255,21 @@ original message → is_reply_with_no_new_info: true, items: []. Don't
 just return an empty items list silently without also setting the flag
 — the empty list alone doesn't tell anyone a reply happened.
 
+## Out-of-office / automatic replies — return nothing
+
+If this whole email is an automatic reply — an out-of-office or
+vacation responder ("I'm out of the office until January 5 and will
+respond when I return", "Automatic reply: ...") — return an empty items
+list and leave is_reply_with_no_new_info false. Don't extract the away
+dates or return date as a schedule item: they describe one person's
+inbox, not the school calendar. This is the one case where an empty
+items list without the reply flag is correct — the reply flag posts a
+"nothing new" notice, and nobody needs a notice about an auto-reply.
+
+Only for genuinely automatic replies. A real email ABOUT someone being
+away — "Ms. Lee is on leave next week; Mr. Park will sub for Room 12" —
+is news for families: extract it as usual.
+
 ## Write the fact that's actually there — never invent one, never skip one
 
 Two different failures live on opposite sides of the same line, and
