@@ -181,3 +181,20 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   time — separate question. Verified live: the timestamp query against
   the real inbox returned exactly the expected emails. Bucket: cheap —
   confirmed with user.
+
+## 2026-10-06
+
+- **Repeats are tagged "_Follow-up:_" in Slack instead of hidden.** Why:
+  a field trip posted twice (evening chaperone schedule,
+  then a morning reminder with bag lunch / sunscreen). Dedup already
+  knew it was a repeat, but only promotional items ever used that fact;
+  everything else is deliberately always-included. Tagging keeps the
+  new details while making true repeats easy to skim. Applies to any
+  included item whose dedup check says already-sent (including promos
+  let through by the deadline window). Rejected: suppressing repeats —
+  topic matching is a fuzzy heuristic (exact key or 2+ shared words,
+  21-day lookback, same school), so a wrong match would hide a real
+  email; and "suppress unless new info" needs a model judgment that
+  would likely have dropped this exact reminder. Assumption: tag wording
+  and position (leading italic `_Follow-up:_`). Bucket: cheap —
+  confirmed with user.

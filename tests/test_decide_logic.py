@@ -274,3 +274,46 @@ def test_multiple_items_combine_with_dated_items_ordered_first():
     assert decision.slack_text.index("2nd grade roundtable today") < \
         decision.slack_text.index("Room 12 started a unit")
     assert len(decision.logged_items) == 2
+
+
+def test_repeat_of_ordinary_item_is_still_included_but_tagged_follow_up():
+    """The double-posted field trip case: the chaperone schedule posted one evening,
+    then a reminder next morning adding bag lunch / sunscreen. The second
+    one carries details worth acting on, so it isn't dropped — just
+    tagged so it's easy to skim past when it's truly a repeat."""
+    extraction = EmailExtraction(
+        school="Example Elementary", is_reply_with_no_new_info=False,
+        items=[make_item(one_line_summary="Field trip tomorrow — pack a nut-free lunch.",
+                         deadline_date="2026-09-09")],
+    )
+    decision = decide(make_config(), extraction,
+                      {"test-topic": DedupStatus(already_sent=True, last_sent_date="2026-09-07")},
+                      "subj", today=TODAY)
+    assert decision.slack_text is not None
+    assert "- _Follow-up:_ Field trip tomorrow — pack a nut-free lunch. — September 9" in decision.slack_text
+    assert len(decision.logged_items) == 1
+
+
+def test_first_mention_is_not_tagged_follow_up():
+    extraction = EmailExtraction(
+        school="Example Elementary", is_reply_with_no_new_info=False,
+        items=[make_item(one_line_summary="No school Monday.")],
+    )
+    decision = decide(make_config(), extraction, {"test-topic": NOT_SENT}, "subj", today=TODAY)
+    assert "Follow-up" not in decision.slack_text
+
+
+def test_only_the_repeated_item_in_a_mixed_email_is_tagged():
+    extraction = EmailExtraction(
+        school="Example Elementary", is_reply_with_no_new_info=False,
+        items=[
+            make_item(topic_key="field-trip", one_line_summary="Field trip reminder."),
+            make_item(topic_key="picture-day", one_line_summary="Picture day is coming."),
+        ],
+    )
+    decision = decide(make_config(), extraction, {
+        "field-trip": DedupStatus(already_sent=True, last_sent_date="2026-09-07"),
+        "picture-day": NOT_SENT,
+    }, "subj", today=TODAY)
+    assert "- _Follow-up:_ Field trip reminder." in decision.slack_text
+    assert "- Picture day is coming." in decision.slack_text

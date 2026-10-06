@@ -41,6 +41,8 @@ Gmail (labeled emails since last run)
         │                        kept near its deadline or when new) —
         │                        are all inclusion ever depends on;
         │                        everything else survives by default.
+        │                        Anything already sent recently is
+        │                        tagged "Follow-up:" rather than hidden.
         │                        Deterministic once each item carries
         │                        real facts — fully unit-tested without
         │                        touching the network.

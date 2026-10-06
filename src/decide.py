@@ -67,9 +67,15 @@ def _format_deadline_date(deadline_date: str, today: date) -> str:
     return formatted
 
 
-def _format_bullet(item: ExtractedItem, today: date) -> str:
+def _format_bullet(item: ExtractedItem, today: date, is_follow_up: bool = False) -> str:
+    # Repeats of the same topic still post (a follow-up about the field
+    # trip often adds the detail you actually need, like "bring a bag
+    # lunch"), but are tagged up front so they're easy to skim past.
+    # Tag rather than hide, because topic matching is fuzzy: a wrong
+    # match here costs a misleading label, not a missed email.
+    prefix = "_Follow-up:_ " if is_follow_up else ""
     if not item.deadline_date:
-        return f"- {item.one_line_summary}"
+        return f"- {prefix}{item.one_line_summary}"
 
     formatted_date = _format_deadline_date(item.deadline_date, today)
     # Backstop, not the primary fix: the extraction prompt is told not to
@@ -77,9 +83,9 @@ def _format_bullet(item: ExtractedItem, today: date) -> str:
     # If it slips through anyway, don't compound it by showing the same
     # date twice — better to trust whatever the summary already says.
     if formatted_date in item.one_line_summary:
-        return f"- {item.one_line_summary}"
+        return f"- {prefix}{item.one_line_summary}"
 
-    return f"- {item.one_line_summary} — {formatted_date}"
+    return f"- {prefix}{item.one_line_summary} — {formatted_date}"
 
 
 def decide(
@@ -110,7 +116,7 @@ def decide(
         if not _should_include(item, dedup_status, config, today):
             continue
 
-        bullet = _format_bullet(item, today)
+        bullet = _format_bullet(item, today, is_follow_up=dedup_status.already_sent)
         if item.deadline_date:
             dated_bullets.append(bullet)
         else:
