@@ -1,0 +1,212 @@
+"""The sent-log / dedup store. Deliberately just SQLite: zero external
+accounts, one file, works identically for you or anyone who forks this.
+This is the thing that makes "don't repeat information" a checkable fact
+instead of a guess the model makes from scratch every run.
+"""
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+from datetime import date, timedelta
+from pathlib import Path
+
+from .models import DedupStatus
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sent_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_key TEXT NOT NULL,
+    school TEXT NOT NULL,
+    requests_volunteer_help INTEGER NOT NULL,
+    is_promotional INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    message_id TEXT,
+    date_sent TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sent_log_topic_key ON sent_log(topic_key);
+
+CREATE TABLE IF NOT EXISTS run_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+
+@contextmanager
+def _connect(db_path: str):
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# Sent logs created before the two-flag redesign have a single `category`
+# column instead of the two flags. CREATE TABLE IF NOT EXISTS leaves an
+# existing table alone, so without this every log_sent() on an old file
+# fails. SQLite can't drop a NOT NULL column in place, so rebuild the
+# table: new layout, copy every row across, swap it in. Old categories
+# map onto the flags the same way the old decide() treated them —
+# volunteer_ask was the volunteer case, fundraiser the promotional one,
+# and schedule_change / deadline / classroom_update were always-included
+# (neither flag). Runs as one transaction: if any statement fails, the
+# whole rebuild rolls back and the old table is untouched.
+_MIGRATE_CATEGORY_TO_FLAGS = """
+BEGIN;
+CREATE TABLE sent_log_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_key TEXT NOT NULL,
+    school TEXT NOT NULL,
+    requests_volunteer_help INTEGER NOT NULL,
+    is_promotional INTEGER NOT NULL,
+    summary TEXT NOT NULL,
+    message_id TEXT,
+    date_sent TEXT NOT NULL
+);
+INSERT INTO sent_log_new (id, topic_key, school, requests_volunteer_help,
+                          is_promotional, summary, message_id, date_sent)
+SELECT id, topic_key, school,
+       CASE WHEN category = 'volunteer_ask' THEN 1 ELSE 0 END,
+       CASE WHEN category = 'fundraiser' THEN 1 ELSE 0 END,
+       summary, message_id, date_sent
+FROM sent_log;
+DROP TABLE sent_log;
+ALTER TABLE sent_log_new RENAME TO sent_log;
+COMMIT;
+"""
+
+
+def init_db(db_path: str) -> None:
+    with _connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sent_log)")}
+        if "category" in columns:
+            conn.executescript(_MIGRATE_CATEGORY_TO_FLAGS)
+        conn.executescript(_SCHEMA)
+
+
+# Words that show up in topic keys for many UNRELATED events, so sharing
+# them says nothing about two keys being the same event. Built from the
+# real sent log, where every wrong match was made of these: two
+# different field trips sharing "field"+"trip", a closure matching a
+# walk-to-school day on "school"+"2026". Tokens containing a digit
+# (2026, nov4, 10) and month names are dropped too. The family's own
+# school and class names are passed in by the caller from config —
+# they're in half the keys, so they're just as generic here.
+_GENERIC_WORDS = {
+    "school", "day", "field", "trip", "parent", "parents",
+    "update", "weekly", "the", "and", "for",
+    "jan", "january", "feb", "february", "mar", "march", "apr", "april",
+    "may", "jun", "june", "jul", "july", "aug", "august", "sep", "sept",
+    "september", "oct", "october", "nov", "november", "dec", "december",
+}
+
+
+def _singular(word: str) -> str:
+    """Crude, but enough for key wording drift: "tops"/"top",
+    "pictures"/"picture", "signups"/"signup". Leaves "class" alone."""
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _tokens(topic_key: str, ignore_words: frozenset[str] = frozenset()) -> set[str]:
+    """The distinctive words in a topic key, singularized.
+    ignore_words is expected singularized too (check_dedup does that)."""
+    words = set()
+    for t in topic_key.lower().split("-"):
+        if len(t) <= 2 or any(c.isdigit() for c in t):
+            continue
+        w = _singular(t)
+        if t in _GENERIC_WORDS or w in _GENERIC_WORDS or w in ignore_words:
+            continue
+        words.add(w)
+    return words
+
+
+def _same_topic(a: set[str], b: set[str]) -> bool:
+    """Two distinctive words in common — or, when a key has fewer than
+    two distinctive words left (parent-conferences-oct-2026 is just
+    "conference"), all of them. A key with none left never fuzzy-matches."""
+    needed = min(2, len(a), len(b))
+    return needed > 0 and len(a & b) >= needed
+
+
+def check_dedup(
+    db_path: str,
+    topic_key: str,
+    school: str,
+    lookback_days: int,
+    today: date | None = None,
+    ignore_words: frozenset[str] = frozenset(),
+) -> DedupStatus:
+    """Exact match first; falls back to a light token-overlap check within
+    the same school, to catch the same real-world event described with a
+    slightly different topic_key wording. This is a heuristic, not a
+    guarantee — tune it against real cases in tests/ as they come up.
+    ignore_words: extra words that aren't distinctive for this family
+    (their school and class names — see pipeline.py)."""
+    today = today or date.today()
+    cutoff = (today - timedelta(days=lookback_days)).isoformat()
+
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT topic_key, date_sent FROM sent_log "
+            "WHERE school = ? AND date_sent >= ? ORDER BY date_sent DESC",
+            (school, cutoff),
+        ).fetchall()
+
+    if not rows:
+        return DedupStatus(already_sent=False)
+
+    exact = next((r for r in rows if r["topic_key"] == topic_key), None)
+    if exact:
+        return DedupStatus(already_sent=True, last_sent_date=exact["date_sent"])
+
+    ignore_words = frozenset(_singular(w.lower()) for w in ignore_words)
+    new_tokens = _tokens(topic_key, ignore_words)
+    for r in rows:
+        if _same_topic(new_tokens, _tokens(r["topic_key"], ignore_words)):
+            return DedupStatus(already_sent=True, last_sent_date=r["date_sent"])
+
+    return DedupStatus(already_sent=False)
+
+
+def get_last_run(db_path: str) -> str | None:
+    with _connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT value FROM run_state WHERE key = 'last_run'"
+        ).fetchone()
+    return row["value"] if row else None
+
+
+def set_last_run(db_path: str, when_iso: str) -> None:
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO run_state (key, value) VALUES ('last_run', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (when_iso,),
+        )
+
+
+def log_sent(
+    db_path: str,
+    topic_key: str,
+    school: str,
+    requests_volunteer_help: bool,
+    is_promotional: bool,
+    summary: str,
+    message_id: str | None = None,
+    today: date | None = None,
+) -> None:
+    today = today or date.today()
+    with _connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO sent_log (topic_key, school, requests_volunteer_help, "
+            "is_promotional, summary, message_id, date_sent) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (topic_key, school, requests_volunteer_help, is_promotional,
+             summary, message_id, today.isoformat()),
+        )

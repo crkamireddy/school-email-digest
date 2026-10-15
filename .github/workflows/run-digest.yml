@@ -1,0 +1,65 @@
+name: School Email Digest
+
+on:
+  schedule:
+    # Every 30 minutes, around the clock. Format is 'minute hour day
+    # month weekday' (UTC); for a few fixed times a day instead, list
+    # them like '17 14 * * *' (7:17am US Pacific daylight time). Cost
+    # barely depends on this: a run with no new email makes no Claude
+    # call, and Actions minutes are free for public repos.
+    #
+    # The odd minutes are deliberate: GitHub queues scheduled runs and
+    # starts them when it has capacity, and :00 / :30 are when most of
+    # the world's schedules fire — runs there were starting 3–4 hours
+    # late and occasionally not at all. Off-peak minutes help but aren't
+    # a guarantee; a late run still catches up on everything since the
+    # last one.
+    - cron: '17,47 * * * *'
+  workflow_dispatch:  # lets you trigger a run manually from GitHub's Actions tab, for testing
+
+# Only one digest run at a time. Two overlapping runs would read the same
+# cursor and sent log, post the same emails twice, and then each upload
+# its own sent log — the last upload silently erasing the other's
+# records. A run that starts while another is going waits instead
+# (cancel-in-progress: false, so a run is never cut off mid-post).
+# GitHub keeps at most one waiting run; if another arrives, it replaces
+# the waiting one, which is fine — each run catches up on everything
+# since the last cursor.
+concurrency:
+  group: school-email-digest
+  cancel-in-progress: false
+
+jobs:
+  run-digest:
+    # Off switch for fresh copies: scheduled runs are skipped until the
+    # repository variable DIGEST_ENABLED is set to true (Settings →
+    # Secrets and variables → Actions → Variables). Without it, a copy
+    # made from the template would fail every 30 minutes before setup is
+    # done. Manual runs from the Actions tab always go, for testing.
+    if: github.event_name == 'workflow_dispatch' || vars.DIGEST_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Reconstruct credentials from secrets
+        # Secrets are base64-encoded before being stored, and decoded
+        # here — avoids shell-escaping problems with quotes/special
+        # characters that real JSON and YAML content routinely contain.
+        run: |
+          echo "${{ secrets.GMAIL_TOKEN_JSON_B64 }}" | base64 --decode > token.json
+          echo "${{ secrets.SCHOOL_DIGEST_CONFIG_YAML_B64 }}" | base64 --decode > config.yaml
+
+      - name: Run the digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: python run.py
