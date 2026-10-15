@@ -396,14 +396,30 @@ two base64 secrets back into `token.json` and `config.yaml`, then runs
 `python run.py` with the other two secrets as environment variables.
 
 The schedule is set by the `cron:` line, **in UTC**. As shipped, it runs
-every 30 minutes (at :17 and :47 past each hour). Running often costs
-almost nothing extra: a run that finds no new email makes no Claude
-call, and Actions minutes are free for public repos. To run only at a
-few fixed times instead, replace it with lines like `'17 14 * * *'`
-(the comments in the file explain the format), then commit and push.
-Keep the minute off :00 and :30 — GitHub starts scheduled runs when it
-has spare capacity, and those minutes are its busiest, so runs there
-can start hours late or get skipped.
+every 30 minutes (at :17 and :47 past each hour). To change it, edit
+that line (the comments in the file explain the format), then commit
+and push. Keep the minute off :00 and :30 — GitHub starts scheduled
+runs when it has spare capacity, and those minutes are its busiest, so
+runs there can start hours late or get skipped.
+
+**Run less often on a private repo.** The every-30-minutes schedule
+suits a *public* repo, where GitHub Actions minutes are free. A
+*private* repo — which your copy should be (see [Privacy](#privacy)) —
+gets 2,000 free minutes a month, shared across all your private repos,
+and GitHub rounds every run up to a full minute even though this one
+takes about 30 seconds. Every 30 minutes is about 1,500 minutes a
+month: under the limit, but close, and runs stop for the rest of the
+month if you go over. So for a private copy, run every couple of hours
+instead (about 370 minutes a month):
+
+```yaml
+    - cron: '17 */2 * * *'
+```
+
+or a few fixed times a day, e.g. `'17 14 * * *'` for 7:17am US Pacific
+daylight time. Either way, Claude cost barely changes: a run with no new
+email makes no Claude call, and fewer runs just means each one catches
+up on a bit more email.
 
 The workflow also allows only one run at a time (its `concurrency:`
 block), so a late run and the next scheduled one can't overlap and
@@ -426,8 +442,8 @@ doesn't know about a local schedule on your own computer.
 
 After that it runs on schedule. GitHub emails you if a run fails.
 Scheduled runs can start several minutes late when GitHub is busy.
-Private repos get 2,000 free Actions minutes a month; each run takes
-about a minute.
+On a private repo, check you've slowed the schedule as described in
+step 7 so you stay within the free Actions minutes.
 
 ## Running it
 

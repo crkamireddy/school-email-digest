@@ -425,3 +425,12 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   its four secrets were re-added by hand. Paid live eval not re-run
   after the fixture rewrite. Bucket: expensive (public data, auth
   links, live schedule) — confirmed with user.
+- **Docs tell private copies to run every 2 hours; the shipped schedule
+  stays every 30 minutes.** Why: the original repo is public (free
+  Actions minutes), but template copies are private: 2,000 free
+  minutes a month, each run billed as a full minute, so every 30
+  minutes is ~1,500 — under the cap but close, and runs stop if it's
+  exceeded. Note added to README Part 2 step 7 and the workflow
+  comment rather than switching automatically. Assumption: every 2
+  hours (`'17 */2 * * *'`, ~370 minutes a month) as the recommended
+  private-repo schedule. Bucket: cheap (docs only).

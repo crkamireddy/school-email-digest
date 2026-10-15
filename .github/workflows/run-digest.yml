@@ -4,9 +4,15 @@ on:
   schedule:
     # Every 30 minutes, around the clock. Format is 'minute hour day
     # month weekday' (UTC); for a few fixed times a day instead, list
-    # them like '17 14 * * *' (7:17am US Pacific daylight time). Cost
-    # barely depends on this: a run with no new email makes no Claude
-    # call, and Actions minutes are free for public repos.
+    # them like '17 14 * * *' (7:17am US Pacific daylight time). Claude
+    # cost barely depends on this: a run with no new email makes no
+    # Claude call.
+    #
+    # Every 30 minutes is meant for a PUBLIC repo, where Actions minutes
+    # are free. On a PRIVATE repo (2,000 free minutes a month, each run
+    # billed as a full minute) it uses ~1,500 a month — too close to the
+    # limit. Use '17 */2 * * *' (every 2 hours, ~370 a month) instead.
+    # See the README, Part 2 step 7.
     #
     # The odd minutes are deliberate: GitHub queues scheduled runs and
     # starts them when it has capacity, and :00 / :30 are when most of
