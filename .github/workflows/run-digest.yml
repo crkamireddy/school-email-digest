@@ -2,26 +2,33 @@ name: School Email Digest
 
 on:
   schedule:
-    # Every 30 minutes, around the clock. Format is 'minute hour day
-    # month weekday' (UTC); for a few fixed times a day instead, list
-    # them like '17 14 * * *' (7:17am US Pacific daylight time). Claude
-    # cost barely depends on this: a run with no new email makes no
-    # Claude call.
+    # Backstop only: the main trigger is tools/gmail-trigger.gs, which
+    # starts a run within minutes of a labeled email arriving (README
+    # Part 3). This catches anything that script misses — if it stops,
+    # or its GitHub token expires — every 6 hours, ~120 runs a month.
+    # Format is 'minute hour day month weekday' (UTC).
     #
-    # Every 30 minutes is meant for a PUBLIC repo, where Actions minutes
-    # are free. On a PRIVATE repo (2,000 free minutes a month, each run
-    # billed as a full minute) it uses ~1,500 a month — too close to the
-    # limit. Use '17 */2 * * *' (every 2 hours, ~370 a month) instead.
+    # Not using the Gmail trigger? Run more often instead: every 2 hours
+    # ('17 */2 * * *', ~370 Actions minutes a month) suits a private
+    # repo's 2,000 free minutes; a public repo's minutes are free.
     # See the README, Part 2 step 7.
     #
-    # The odd minutes are deliberate: GitHub queues scheduled runs and
+    # The odd minute is deliberate: GitHub queues scheduled runs and
     # starts them when it has capacity, and :00 / :30 are when most of
     # the world's schedules fire — runs there were starting 3–4 hours
     # late and occasionally not at all. Off-peak minutes help but aren't
     # a guarantee; a late run still catches up on everything since the
     # last one.
-    - cron: '17,47 * * * *'
-  workflow_dispatch:  # lets you trigger a run manually from GitHub's Actions tab, for testing
+    - cron: '17 */6 * * *'
+  # Manual runs from GitHub's Actions tab (for testing), and the Gmail
+  # trigger, which calls the same thing through GitHub's API with
+  # trigger set to 'gmail'.
+  workflow_dispatch:
+    inputs:
+      trigger:
+        description: Who started this run (leave as manual)
+        default: manual
+        type: string
 
 # Only one digest run at a time. Two overlapping runs would read the same
 # cursor and sent log, post the same emails twice, and then each upload
@@ -37,12 +44,13 @@ concurrency:
 
 jobs:
   run-digest:
-    # Off switch for fresh copies: scheduled runs are skipped until the
-    # repository variable DIGEST_ENABLED is set to true (Settings →
+    # Off switch: scheduled and Gmail-triggered runs are skipped until
+    # the repository variable DIGEST_ENABLED is set to true (Settings →
     # Secrets and variables → Actions → Variables). Without it, a copy
-    # made from the template would fail every 30 minutes before setup is
-    # done. Manual runs from the Actions tab always go, for testing.
-    if: github.event_name == 'workflow_dispatch' || vars.DIGEST_ENABLED == 'true'
+    # made from the template would fail on every run before setup is
+    # done, and deleting it pauses the digest. Manual runs from the
+    # Actions tab always go, for testing.
+    if: (github.event_name == 'workflow_dispatch' && inputs.trigger != 'gmail') || vars.DIGEST_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo

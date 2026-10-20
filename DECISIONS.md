@@ -434,3 +434,43 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   comment rather than switching automatically. Assumption: every 2
   hours (`'17 */2 * * *'`, ~370 minutes a month) as the recommended
   private-repo schedule. Bucket: cheap (docs only).
+
+## 2026-10-20
+
+- **Runs now start when a labeled email arrives, via a Google Apps
+  Script trigger (`tools/gmail-trigger.gs`, README Part 3); the GitHub
+  schedule drops to a 6-hour backstop (`'17 */6 * * *'`).** Why: user
+  wanted runs on arrival rather than every 30 minutes, and GitHub's
+  scheduled runs start late. The script checks Gmail every 5 minutes
+  and calls GitHub's `workflow_dispatch` API, which starts runs within
+  seconds. No Python changes: the pipeline already catches up from
+  its cursor, so how a run gets started doesn't matter to it.
+  Considered and rejected: Gmail push notifications via Pub/Sub, which
+  are truly instant but need a Google Cloud function with billing set
+  up, plus renewing the Gmail watch every 7 days. Assumptions:
+  - Every 5 minutes, not every 1, to stay well inside Apps Script's
+    daily runtime quota; GitHub takes about a minute to start anyway.
+  - 6-hour backstop (~120 runs a month). README tells people skipping
+    Part 3 to use every 2 hours instead.
+  - `workflow_dispatch`, not `repository_dispatch`, so the
+    fine-grained token needs only Actions read/write on the one repo
+    (`repository_dispatch` needs Contents write, which can push code).
+  - Read-only Gmail API (advanced service, `gmail.readonly`, pinned in
+    `tools/gmail-trigger.appsscript.json`) instead of `GmailApp`, which
+    typically asks for full mailbox access. Only `format: 'minimal'`
+    reads are made, so no subjects, senders or bodies.
+  - The script remembers the newest email time it has reported, not
+    the last time it checked, so slow Gmail indexing can't drop an
+    email and the same email can't trigger twice.
+  The workflow's off switch changed: runs started with
+  `inputs.trigger == 'gmail'` now respect `DIGEST_ENABLED`, like
+  scheduled runs. Before, every `workflow_dispatch` bypassed it, which
+  would have let the script run a paused digest. Manual runs from the
+  Actions tab still always go. Bucket: expensive (new credential stored
+  in Google, changes the live schedule): direction confirmed with user.
+  Order matters the other way round from what was first planned: the
+  workflow change has to be on GitHub *before* the script can start
+  runs (an older workflow rejects the `trigger` input with HTTP 422),
+  so it was pushed first and the script finished right after. README
+  Part 3 now says so for older copies, and lists the setup errors hit
+  along the way. Bucket: unchanged.

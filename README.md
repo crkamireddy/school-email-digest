@@ -60,7 +60,8 @@ methodology.
 ## Choose how you'll run it
 
 There are two ways to run this. Everyone starts with **Part 1**; **Part 2**
-is optional.
+is optional. If you do Part 2, **Part 3** (~15 more minutes) makes it
+run within minutes of a school email arriving instead of on a timer.
 
 | | **Local-only** (Part 1) | **Cloud** (Part 1 + Part 2) |
 |---|---|---|
@@ -115,7 +116,7 @@ these packages don't interfere with anything else on your computer. Run
 work on this (on Windows: `.venv\Scripts\activate`).
 
 > Your copy's scheduled cloud runs stay off until you switch them on in
-> Part 2, so it won't fail every half hour while you set things up.
+> Part 2, so it won't fail on every run while you set things up.
 
 ### 2. Anthropic API key
 
@@ -396,30 +397,34 @@ two base64 secrets back into `token.json` and `config.yaml`, then runs
 `python run.py` with the other two secrets as environment variables.
 
 The schedule is set by the `cron:` line, **in UTC**. As shipped, it runs
-every 30 minutes (at :17 and :47 past each hour). To change it, edit
-that line (the comments in the file explain the format), then commit
-and push. Keep the minute off :00 and :30 — GitHub starts scheduled
-runs when it has spare capacity, and those minutes are its busiest, so
-runs there can start hours late or get skipped.
+every 6 hours (at :17 past 00, 06, 12 and 18 UTC). That's a *backstop*:
+it assumes you'll also set up [Part 3](#part-3-run-when-email-arrives),
+which starts a run within minutes of each school email, and the schedule
+just catches anything Part 3 misses. To change it, edit that line (the
+comments in the file explain the format), then commit and push. Keep
+the minute off :00 and :30 — GitHub starts scheduled runs when it has
+spare capacity, and those minutes are its busiest, so runs there can
+start hours late or get skipped.
 
-**Run less often on a private repo.** The every-30-minutes schedule
-suits a *public* repo, where GitHub Actions minutes are free. A
-*private* repo — which your copy should be (see [Privacy](#privacy)) —
-gets 2,000 free minutes a month, shared across all your private repos,
-and GitHub rounds every run up to a full minute even though this one
-takes about 30 seconds. Every 30 minutes is about 1,500 minutes a
-month: under the limit, but close, and runs stop for the rest of the
-month if you go over. So for a private copy, run every couple of hours
-instead (about 370 minutes a month):
+**Skipping Part 3? Run more often.** Every 6 hours alone means a digest
+can arrive hours after the email. Without Part 3, run every couple of
+hours instead:
 
 ```yaml
     - cron: '17 */2 * * *'
 ```
 
 or a few fixed times a day, e.g. `'17 14 * * *'` for 7:17am US Pacific
-daylight time. Either way, Claude cost barely changes: a run with no new
-email makes no Claude call, and fewer runs just means each one catches
-up on a bit more email.
+daylight time. Don't go much more often than every 2 hours on a
+*private* repo — which your copy should be (see [Privacy](#privacy)).
+Private repos get 2,000 free GitHub Actions minutes a month, shared
+across all your private repos, and GitHub rounds every run up to a
+full minute even though this one takes about 30 seconds: every 2 hours
+is about 370 minutes a month, every 30 minutes about 1,500 — close to
+the limit, and runs stop for the rest of the month if you go over.
+Claude cost barely depends on any of this: a run with no new email
+makes no Claude call, and fewer runs just means each one catches up on
+a bit more email.
 
 The workflow also allows only one run at a time (its `concurrency:`
 block), so a late run and the next scheduled one can't overlap and
@@ -442,8 +447,125 @@ doesn't know about a local schedule on your own computer.
 
 After that it runs on schedule. GitHub emails you if a run fails.
 Scheduled runs can start several minutes late when GitHub is busy.
-On a private repo, check you've slowed the schedule as described in
-step 7 so you stay within the free Actions minutes.
+Now do Part 3 so it runs when email arrives — or, if you're skipping
+it, make the schedule more frequent as described in step 7.
+
+## Part 3: Run when email arrives
+
+GitHub can't see your Gmail, so on its own it can only run on a timer.
+This part adds a small script that runs inside your own Google account
+([Google Apps Script](https://script.google.com) — free, built into
+every Google account). Every 5 minutes it checks for a new email with
+your label, and if there is one, it asks GitHub to start the digest
+right away. A run started this way begins within seconds, unlike
+scheduled runs, which GitHub can start hours late.
+
+The script only reads the time each labeled email arrived — never the
+subject, sender or content — and its Gmail permission is read-only. The
+digest itself still runs in GitHub exactly as before, and catches up on
+everything since its last run, so a missed check costs nothing: the
+next one, or the 6-hour backstop schedule, picks it up.
+
+**Made your copy before this part existed?** Template copies don't
+update themselves. Update `.github/workflows/run-digest.yml` in your
+repo to the current version and push it *before* step 3 — the script
+labels its runs in a way older workflow files reject (HTTP 422). The
+current file also drops the schedule to a 6-hour backstop, so finish
+this part promptly after pushing.
+
+### 1. Make a GitHub token that can only start this workflow
+
+1. On GitHub: your profile picture → **Settings** → **Developer
+   settings** → **Personal access tokens** → **Fine-grained tokens** →
+   **Generate new token**.
+2. Name it e.g. `school digest trigger`. Pick an **expiration** and put
+   a reminder in your calendar for that date (see step 4).
+3. **Repository access** → **Only select repositories** → your digest
+   repo.
+4. **Permissions** → **Repository permissions** → **Actions** → **Read
+   and write**. Leave everything else as is. (*Read and write* on
+   Actions lets the token start, cancel and delete workflow runs on
+   this one repo; it can't read or change your code or secrets.)
+5. **Generate token** and copy it (starts with `github_pat_`). You
+   won't be able to see it again.
+
+### 2. Create the script
+
+Sign in to Google as the Gmail account that receives the school email,
+then:
+
+1. Go to [script.google.com](https://script.google.com) → **New
+   project**. Rename it (top left) to e.g. `School digest trigger`.
+2. Delete what's in `Code.gs` and paste in the contents of
+   [`tools/gmail-trigger.gs`](tools/gmail-trigger.gs). Edit the three
+   lines near the top:
+   - `GITHUB_REPO` — your repo as `owner/name`, e.g.
+     `your-github-name/school-email-digest`
+   - `GMAIL_LABEL` — the same label as `gmail: label:` in your
+     `config.yaml`
+   - `CHECK_EVERY_MINUTES` — leave at 5 unless you have a reason
+3. Replace the script's settings file. This turns on the Gmail API for
+   the script and limits it to read-only Gmail access, outside requests
+   (to call GitHub), and managing its own timer.
+   1. In the narrow icon bar on the far left, click the **gear**
+      (**Project Settings**) and tick **Show "appsscript.json" manifest
+      file in editor**.
+   2. Click the **`< >`** icon (**Editor**). The **Files** list next to
+      it now shows `appsscript.json` under `Code.gs`. Click it.
+   3. Click in the text, select all (⌘A / Ctrl+A), and paste the
+      contents of
+      [`tools/gmail-trigger.appsscript.json`](tools/gmail-trigger.appsscript.json)
+      over it.
+   4. Save (⌘S / Ctrl+S). Check that **Services**, below the Files
+      list, now shows **Gmail**. If it doesn't, the file didn't save —
+      try again.
+4. **Project Settings** → **Script Properties** → **Add script
+   property**: name `GITHUB_TOKEN`, value the token from step 1 →
+   **Save script properties**. (Keeping it here rather than in the code
+   means the code can be copied or shared without leaking it.)
+
+### 3. Start it
+
+1. In the **Editor**, pick `installTrigger` in the function dropdown
+   in the toolbar and click **Run**.
+2. Google asks you to authorize the script. Because it's your own
+   unpublished script, it shows **Google hasn't verified this app** →
+   **Advanced** → **Go to School digest trigger (unsafe)** → **Allow**.
+   Check the list says Gmail access is *view* only.
+3. The log at the bottom should finish without errors. If you have a
+   labeled email from the last two days, GitHub's **Actions** tab now
+   shows a run (it may be marked *skipped* if `DIGEST_ENABLED` isn't
+   set yet — see Part 2 step 8).
+4. To confirm the timer exists: **Triggers** (clock icon, left) shows
+   `checkForNewEmail`, time-based, every 5 minutes.
+
+To test end to end, send yourself an email that your filter labels and
+watch the Actions tab: a run should appear within about 5 minutes.
+
+**If the log shows an error:**
+- `Gmail is not defined` — the settings file from step 2.3 wasn't
+  saved. Redo it, check **Services** shows **Gmail**, and run
+  `installTrigger` again (Google asks for permission again, now
+  including read-only Gmail).
+- `GitHub refused to start the workflow (HTTP 422)` with `Unexpected
+  inputs provided` — the workflow file in your GitHub repo predates
+  this trigger. See the note at the top of this part.
+- `HTTP 401` or `403` — the token is wrong, expired, or missing the
+  Actions permission (step 1).
+
+### 4. Keeping it running
+
+- **When the token expires**, the script's checks start failing and
+  Google emails you a failure summary (from Apps Script, usually once a
+  day). Make a new token as in step 1 and paste it over `GITHUB_TOKEN`
+  in Script Properties. Until then the backstop schedule keeps the
+  digest going, just less often.
+- **To pause the digest**, delete or change the `DIGEST_ENABLED`
+  variable as in Part 2 step 8 — runs this script starts respect it too.
+  **To stop the script itself**, run `removeTrigger` the same way you
+  ran `installTrigger`.
+- **If you change your label**, update `GMAIL_LABEL` in the script as
+  well as `config.yaml`.
 
 ## Running it
 
@@ -507,6 +629,9 @@ exactly where that goes:
 - **Summaries** are posted to your Slack channel.
 - **The sent log** (short topic labels and one-line summaries) stays on
   your computer, or goes to your Google Drive folder if you set one.
+- **The Gmail trigger** (Part 3), if you use it, runs in your own Google
+  account and reads only when labeled emails arrived. It sends GitHub
+  nothing but "start a run."
 - **Run logs** include email subject lines. Locally that's just your
   terminal or log file — but in GitHub Actions they're in the run log on
   GitHub.
@@ -522,9 +647,10 @@ anything in `data/` — all are already in `.gitignore`.
 
 ## Known limitations
 
-- **Not instant.** This checks on a schedule rather than firing the
-  moment an email lands. A few runs a day is plenty for "know what's up
-  before dinner," but it's worth knowing.
+- **Not instant.** With Part 3, a digest posts a few minutes after a
+  school email arrives (up to 5 minutes for the check, about a minute
+  for GitHub to start, and the run itself). Without it, it depends on
+  your schedule.
 - **Only labeled email.** Anything your Gmail filter misses is invisible.
 - **Daylight saving time.** Neither cron nor GitHub Actions schedules
   shift automatically when clocks change; update the times if it matters.
