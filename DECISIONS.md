@@ -474,3 +474,58 @@ expensive to undo (schema, auth, real data, cost), should be paused on.
   so it was pushed first and the script finished right after. README
   Part 3 now says so for older copies, and lists the setup errors hit
   along the way. Bucket: unchanged.
+
+## 2026-10-22
+
+- **Slack post layout: date up front, grouped, quieter repeat marker.**
+  The post read as busy, and dates showed twice ("...recycled on Oct.
+  30. — October 30"). The duplicate check only matched the exact
+  "October 30" text, so the model's "Oct. 30" slipped past. Now: each
+  dated bullet leads with a short bold date (`• *Oct 30* · ...`),
+  sorted soonest first. The summary's own copy of that date is removed
+  where the sentence still reads correctly ("on/by Oct. 30", "is Nov.
+  6", "(10/30)", a trailing "— Oct. 30"). It's kept after
+  "until/through/from", where it marks a start or end the bare date
+  can't show. The italic "_Follow-up:_" became a trailing ↻. Chosen
+  by the user from mockups. Bucket: cheap (formatting only, no prompt
+  or stored-data change). Assumptions:
+  - Short month form ("Oct 30") for a narrow date column.
+  - *Dates* / *Also* headers appear only when a post has both kinds;
+    a single header over the only list is noise. This **reverses** an
+    earlier ask for no section labels; the user picked headers this time.
+  - "Today"/"tomorrow" bullets now show their date too (reverses the
+    earlier fix that dropped it), because a gap in the date column looks
+    like a mistake.
+  - Stripping is regex-based and conservative. A rare phrasing it
+    doesn't recognize can still repeat the date, and removing "is
+    Nov. 6" can leave slightly stiff wording ("RSVP deadline.").
+  - Extraction prompt left alone (user's call): no push for shorter
+    summaries.
+
+## 2026-11-20
+
+- **Slack post: *New* on top, repeats shrunk to a *Follow-up* list.**
+  Even with the Oct 22 ↻ marker, repeats posted their full summary and
+  a post could be mostly re-sends. Now a post has a *New* section (full
+  bullets, date first, soonest first, undated after) and a *Follow-up*
+  section of one short label plus date per repeat (`• Picture day 9/16`).
+  Headers only appear when a post has both, which replaces the
+  *Dates* / *Also* headers from Oct 22. Layout chosen by the user.
+  Bucket: cheap (formatting only, no prompt or stored-data change).
+  Assumptions:
+  - The follow-up label is built from the item's existing `topic_key`
+    (years, numbers and month tokens like "oct9" removed), not a new
+    "short title" field from the model. Free and needs no prompt
+    change, but labels can read mechanically ("No school professional
+    day"). Upgrade path: add a short-title field to the extraction prompt.
+  - A month word inside a key ("may", "march") is also dropped, even if
+    it's part of the event's name. Rare; costs a slightly shorter label.
+  - Follow-up dates use numeric M/D (as in the user's sketch), while
+    *New* keeps "Nov 20". Two formats on purpose: the short form keeps
+    follow-up lines to one line on a phone.
+  - Undated repeats show just the label.
+  - Repeats skip the credential hold-back since their summary isn't
+    shown; the sent log still stores the redacted summary.
+  - The Oct 22 commit had never been pushed (live digest was still on
+    the "_Follow-up:_" format). Its test examples came from a real post
+    and were replaced with invented ones before anything goes public.
